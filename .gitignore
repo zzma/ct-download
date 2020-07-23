@@ -1,3 +1,9 @@
+# compiled binary
+ct-download
+
+# IDE stuff
+.idea
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
