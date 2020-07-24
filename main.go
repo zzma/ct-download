@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
+	"path/filepath"
 	"runtime"
 )
 
@@ -63,7 +64,8 @@ Options:
 	// TODO: try to do bulk upload without indexes using /data2/nsrg/ct/sha256_and_tbs_noct_fp.csv
 	// This should provide 1B+ records
 
-	file, err := os.Create("temp-copy.csv")
+	tempFname := "temp-copy.csv"
+	file, err := os.Create(tempFname)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -83,7 +85,12 @@ Options:
 	writer.Flush()
 	file.Close()
 
-	_, err = db.Exec("COPY downloaded_certs FROM '/Users/zanema/src/golang/src/github.com/zzma/ct-download/temp.csv' CSV HEADER")
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fpath := filepath.Join(dir, tempFname)
+	_, err = db.Exec("COPY downloaded_certs FROM '$1' CSV HEADER", fpath)
 	if err, ok := err.(*pq.Error); ok {
 		log.Error("pq error:", err)
 	}
