@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"github.com/google/uuid"
@@ -62,23 +63,29 @@ Options:
 	// TODO: try to do bulk upload without indexes using /data2/nsrg/ct/sha256_and_tbs_noct_fp.csv
 	// This should provide 1B+ records
 
+	file, err := os.Create("temp-copy.csv")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	writer := csv.NewWriter(file)
+	writer.Write([]string{"md5", "tbs_no_ct_md5"})
 
 	for i := 0; i < rows; i++ {
-		if i % 10000 == 0 {
-			log.Infof("Inserted %d rows...", i)
-		}
-		md5, err := uuid.NewRandom()
-		if err != nil {
-			log.Fatal(err)
-		}
-		tbsnoctmd5, err := uuid.NewRandom()
-		if err != nil {
-			log.Fatal(err)
+		if i%10000 == 0 {
+			log.Infof("Writing %d rows to temp file...", i)
 		}
 
-		_, err = db.Exec("INSERT INTO downloaded_certs (MD5, TBS_NO_CT_MD5) VALUES ($1, $2)", md5, tbsnoctmd5)
-		if err, ok := err.(*pq.Error); ok {
-			log.Error("pq error:", err)
-		}
+		hexStr := fmt.Sprintf("%032x", i)
+		writer.Write([]string{hexStr, hexStr})
 	}
+
+	writer.Flush()
+	file.Close()
+
+	_, err = db.Exec("COPY downloaded_certs FROM '/Users/zanema/src/golang/src/github.com/zzma/ct-download/temp.csv' CSV HEADER")
+	if err, ok := err.(*pq.Error); ok {
+		log.Error("pq error:", err)
+	}
+
 }
