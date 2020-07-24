@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
+	"runtime"
 )
 
 var log *zap.SugaredLogger
@@ -43,7 +44,13 @@ Options:
 	}
 	flag.Parse()
 
-	db, err := sql.Open("postgres", "user=ctdownloader dbname=ctdownload sslmode=disable")
+	cmdString := "user=ctdownloader dbname=ctdownload sslmode=disable"
+
+	if runtime.GOOS == "linux" {
+		cmdString = "user=ctdownloader dbname=ctdownload sslmode=disable host=/var/run/postgresql"
+	}
+
+	db, err := sql.Open("postgres", cmdString)
 	defer db.Close()
 	if err != nil {
 		log.Fatal(err)
