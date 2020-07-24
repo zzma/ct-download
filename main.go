@@ -56,6 +56,12 @@ Options:
 		log.Fatal(err)
 	}
 
+	// Looks like it would take about 27 days to manually upload 2B records
+	// assuming no degradation in performance
+
+	// TODO: try to do bulk upload without indexes using /data2/nsrg/ct/sha256_and_tbs_noct_fp.csv
+	// This should provide 1B+ records
+
 
 	for i := 0; i < rows; i++ {
 		if i % 10000 == 0 {
