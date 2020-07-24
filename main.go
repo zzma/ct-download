@@ -90,7 +90,7 @@ Options:
 		log.Fatal(err)
 	}
 	fpath := filepath.Join(dir, tempFname)
-	_, err = db.Exec("COPY downloaded_certs FROM '$1' CSV HEADER", fpath)
+	_, err = db.Exec("COPY downloaded_certs FROM '" + fpath + "' CSV HEADER")
 	if err, ok := err.(*pq.Error); ok {
 		log.Error("pq error:", err)
 	}
