@@ -39,3 +39,6 @@ CREATE INDEX downloaded_certs_tbs_no_ct_md5
 -- 	CONSTRAINT ctl_url_unq
 -- 		UNIQUE (URL)
 -- );
+
+GRANT ALL ON ALL TABLES IN SCHEMA public TO ctdownloader;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ctdownloader;

@@ -43,7 +43,7 @@ Options:
 	}
 	flag.Parse()
 
-	db, err := sql.Open("postgres", "dbname=ctdownload sslmode=disable")
+	db, err := sql.Open("postgres", "user=ctdownloader dbname=ctdownload sslmode=disable")
 	defer db.Close()
 	if err != nil {
 		log.Fatal(err)
