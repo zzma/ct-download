@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/csv"
 	"flag"
 	"fmt"
 	"github.com/google/uuid"
@@ -10,7 +9,6 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
-	"path/filepath"
 	"runtime"
 )
 
@@ -58,20 +56,6 @@ Options:
 		log.Fatal(err)
 	}
 
-	// Looks like it would take about 27 days to manually upload 2B records
-	// assuming no degradation in performance
-
-	// TODO: try to do bulk upload without indexes using /data2/nsrg/ct/sha256_and_tbs_noct_fp.csv
-	// This should provide 1B+ records
-
-	tempFname := "temp-copy.csv"
-	file, err := os.Create(tempFname)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	writer := csv.NewWriter(file)
-	writer.Write([]string{"md5", "tbs_no_ct_md5"})
 
 	for i := 0; i < rows; i++ {
 		if i%10000 == 0 {
@@ -79,20 +63,47 @@ Options:
 		}
 
 		hexStr := fmt.Sprintf("%032x", i)
-		writer.Write([]string{hexStr, hexStr})
+		_, err = db.Exec("INSERT INTO downloaded_certs (md5,tbs_no_ct_md5) VALUES ($1,$2)", hexStr, hexStr)
+		if err, ok := err.(*pq.Error); ok {
+			log.Error("pq error:", err)
+		}
 	}
 
-	writer.Flush()
-	file.Close()
+	// Looks like it would take about 27 days to manually upload 2B records
+	// assuming no degradation in performance:
 
-	dir, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fpath := filepath.Join(dir, tempFname)
-	_, err = db.Exec("COPY downloaded_certs FROM '" + fpath + "' CSV HEADER")
-	if err, ok := err.(*pq.Error); ok {
-		log.Error("pq error:", err)
-	}
+	// TODO: try to do bulk upload without indexes using /data2/nsrg/ct/sha256_and_tbs_noct_fp.csv
+	// This should provide 1B+ records
+
+	//tempFname := "temp-copy.csv"
+	//file, err := os.Create(tempFname)
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//
+	//writer := csv.NewWriter(file)
+	//writer.Write([]string{"md5", "tbs_no_ct_md5"})
+	//
+	//for i := 0; i < rows; i++ {
+	//	if i%10000 == 0 {
+	//		log.Infof("Writing %d rows to temp file...", i)
+	//	}
+	//
+	//	hexStr := fmt.Sprintf("%032x", i)
+	//	writer.Write([]string{hexStr, hexStr})
+	//}
+	//
+	//writer.Flush()
+	//file.Close()
+	//
+	//dir, err := os.Getwd()
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//fpath := filepath.Join(dir, tempFname)
+	//_, err = db.Exec("COPY downloaded_certs FROM '" + fpath + "' CSV HEADER")
+	//if err, ok := err.(*pq.Error); ok {
+	//	log.Error("pq error:", err)
+	//}
 
 }
