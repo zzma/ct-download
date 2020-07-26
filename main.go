@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 var log *zap.SugaredLogger
@@ -30,6 +31,28 @@ func initLogger() {
 type DownloadedCert struct {
 	md5        uuid.UUID `gorm:"column:MD5;type:uuid;"`
 	tbsnoctmd5 uuid.UUID `gorm:"column:TBS_NO_CT_MD5;type:uuid;"`
+}
+
+func insertBuilder(values [][]string) string {
+	var str strings.Builder
+	str.WriteString("INSERT INTO downloaded_certs (md5,tbs_no_ct_md5) VALUES")
+
+	for idx, row := range values {
+		if len(row) != 2 {
+			log.Fatal("2 fields (md5, tbs_no_ct_md5) required")
+		}
+		str.WriteString(" ('")
+		str.WriteString(row[0])
+		str.WriteString("','")
+		str.WriteString(row[1])
+		if idx == len(values) -1 {
+			str.WriteString("')")
+		} else {
+			str.WriteString("'),")
+		}
+	}
+
+	return str.String()
 }
 
 func main() {
@@ -72,57 +95,63 @@ Options:
 	}
 
 	if useInsert {
+		values := make([][]string, 0)
+		for i := 0; i < rows; i++ {
+			if i%10000 == 0 {
+				log.Infof("Writing %d rows...", i)
+			}
+
+			hexStr := fmt.Sprintf("%032x", i)
+			row := []string{hexStr, hexStr}
+			values = append(values, row)
+
+			if i%100 == 0 {
+
+				_, err = db.Exec(insertBuilder(values))
+				if err, ok := err.(*pq.Error); ok {
+					log.Error("pq error:", err)
+				}
+				values = make([][]string, 0)
+			}
+
+		}
+	} else {
+		tempFname := "temp-copy.csv"
+		file, err := os.Create(tempFname)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		writer := csv.NewWriter(file)
+		writer.Write([]string{"md5", "tbs_no_ct_md5"})
+
 		for i := 0; i < rows; i++ {
 			if i%10000 == 0 {
 				log.Infof("Writing %d rows to temp file...", i)
 			}
 
 			hexStr := fmt.Sprintf("%032x", i)
-			_, err = db.Exec("INSERT INTO downloaded_certs (md5,tbs_no_ct_md5) VALUES ($1,$2)", hexStr, hexStr)
-			if err, ok := err.(*pq.Error); ok {
-				log.Error("pq error:", err)
-			}
+			writer.Write([]string{hexStr, hexStr})
 		}
-	} else {
+
+		writer.Flush()
+		file.Close()
+
+		dir, err := os.Getwd()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fpath := filepath.Join(dir, tempFname)
+		_, err = db.Exec("COPY downloaded_certs FROM '" + fpath + "' CSV HEADER")
+		if err, ok := err.(*pq.Error); ok {
+			log.Error("pq error:", err)
+		}
 
 	}
-
 
 	// Looks like it would take about 27 days to manually upload 2B records
 	// assuming no degradation in performance:
 
 	// TODO: try to do bulk upload without indexes using /data2/nsrg/ct/sha256_and_tbs_noct_fp.csv
 	// This should provide 1B+ records
-
-	tempFname := "temp-copy.csv"
-	file, err := os.Create(tempFname)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	writer := csv.NewWriter(file)
-	writer.Write([]string{"md5", "tbs_no_ct_md5"})
-
-	for i := 0; i < rows; i++ {
-		if i%10000 == 0 {
-			log.Infof("Writing %d rows to temp file...", i)
-		}
-
-		hexStr := fmt.Sprintf("%032x", i)
-		writer.Write([]string{hexStr, hexStr})
-	}
-
-	writer.Flush()
-	file.Close()
-
-	dir, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fpath := filepath.Join(dir, tempFname)
-	_, err = db.Exec("COPY downloaded_certs FROM '" + fpath + "' CSV HEADER")
-	if err, ok := err.(*pq.Error); ok {
-		log.Error("pq error:", err)
-	}
-
 }
