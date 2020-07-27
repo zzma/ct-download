@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/csv"
 	"flag"
 	"fmt"
 	"github.com/google/uuid"
@@ -11,7 +10,6 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -29,26 +27,26 @@ func initLogger() {
 }
 
 type DownloadedCert struct {
-	md5        uuid.UUID `gorm:"column:MD5;type:uuid;"`
-	tbsnoctmd5 uuid.UUID `gorm:"column:TBS_NO_CT_MD5;type:uuid;"`
+	sha256        uuid.UUID `gorm:"column:SHA256;type:uuid;"`
+	tbsnoctsha256 uuid.UUID `gorm:"column:TBS_NO_CT_SHA256;type:uuid;"`
 }
 
 func insertBuilder(values [][]string) string {
 	var str strings.Builder
-	str.WriteString("INSERT INTO downloaded_certs (md5,tbs_no_ct_md5) VALUES")
+	str.WriteString("INSERT INTO downloaded_certs (sha256,tbs_no_ct_sha256) VALUES")
 
 	for idx, row := range values {
 		if len(row) != 2 {
-			log.Fatal("2 fields (md5, tbs_no_ct_md5) required")
+			log.Fatal("2 fields (sha256, tbs_no_ct_sha256) required")
 		}
-		str.WriteString(" ('")
+		str.WriteString(" (decode('")
 		str.WriteString(row[0])
-		str.WriteString("','")
+		str.WriteString("','hex'),decode('")
 		str.WriteString(row[1])
-		if idx == len(values) -1 {
-			str.WriteString("')")
+		if idx == len(values)-1 {
+			str.WriteString("','hex'))")
 		} else {
-			str.WriteString("'),")
+			str.WriteString("','hex')),")
 		}
 	}
 
@@ -63,9 +61,8 @@ usage: %s
 Options:
 `
 	var rows int
-	var useInsert, memProfile, cpuProfile bool
+	var memProfile, cpuProfile bool
 	flag.IntVar(&rows, "r", 1000, "number of rows to add")
-	flag.BoolVar(&useInsert, "insert", false, "use insert instead of COPY")
 	flag.BoolVar(&memProfile, "mem-profile", false, "run memory profiling")
 	flag.BoolVar(&cpuProfile, "cpu-profile", false, "run cpu profiling")
 
@@ -94,64 +91,23 @@ Options:
 		log.Fatal(err)
 	}
 
-	if useInsert {
-		values := make([][]string, 0)
-		for i := 0; i < rows; i++ {
-			if i%10000 == 0 {
-				log.Infof("Writing %d rows...", i)
+	values := make([][]string, 0)
+	for i := 0; i < rows; i++ {
+		if i%10000 == 0 {
+			log.Infof("Writing %d rows...", i)
+		}
+
+		hexStr := fmt.Sprintf("%032x", i)
+		row := []string{hexStr, hexStr}
+		values = append(values, row)
+
+		if i%100 == 0 {
+			_, err = db.Exec(insertBuilder(values))
+			if err, ok := err.(*pq.Error); ok {
+				log.Error("pq error:", err)
 			}
-
-			hexStr := fmt.Sprintf("%032x", i)
-			row := []string{hexStr, hexStr}
-			values = append(values, row)
-
-			if i%100 == 0 {
-
-				_, err = db.Exec(insertBuilder(values))
-				if err, ok := err.(*pq.Error); ok {
-					log.Error("pq error:", err)
-				}
-				values = make([][]string, 0)
-			}
-
-		}
-	} else {
-		tempFname := "temp-copy.csv"
-		file, err := os.Create(tempFname)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		writer := csv.NewWriter(file)
-		writer.Write([]string{"md5", "tbs_no_ct_md5"})
-
-		for i := 0; i < rows; i++ {
-			if i%10000 == 0 {
-				log.Infof("Writing %d rows to temp file...", i)
-			}
-
-			hexStr := fmt.Sprintf("%032x", i)
-			writer.Write([]string{hexStr, hexStr})
-		}
-
-		writer.Flush()
-		file.Close()
-
-		dir, err := os.Getwd()
-		if err != nil {
-			log.Fatal(err)
-		}
-		fpath := filepath.Join(dir, tempFname)
-		_, err = db.Exec("COPY downloaded_certs FROM '" + fpath + "' CSV HEADER")
-		if err, ok := err.(*pq.Error); ok {
-			log.Error("pq error:", err)
+			values = make([][]string, 0)
 		}
 
 	}
-
-	// Looks like it would take about 27 days to manually upload 2B records
-	// assuming no degradation in performance:
-
-	// TODO: try to do bulk upload without indexes using /data2/nsrg/ct/sha256_and_tbs_noct_fp.csv
-	// This should provide 1B+ records
 }
