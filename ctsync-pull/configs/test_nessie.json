@@ -1,0 +1,6 @@
+{"name":"digicert_nessie2018_log","url":"https://nessie2018.ct.digicert.com/log/","batch_size":10000}
+{"name":"digicert_nessie2019_log","url":"https://nessie2019.ct.digicert.com/log/","batch_size":10000}
+{"name":"digicert_nessie2020_log","url":"https://nessie2020.ct.digicert.com/log/","batch_size":10000}
+{"name":"digicert_nessie2021_log","url":"https://nessie2021.ct.digicert.com/log/","batch_size":10000}
+{"name":"digicert_nessie2022_log","url":"https://nessie2022.ct.digicert.com/log/","batch_size":10000}
+{"name":"digicert_nessie2023_log","url":"https://nessie2023.ct.digicert.com/log/","batch_size":10000}
