@@ -185,21 +185,6 @@ func (c *logEntryWriter) WriteEntry(entry *ct.LogEntry) {
 	}
 }
 
-func connectToDb() *sql.DB {
-	cmdString := "user=ctdownloader dbname=ctdownload sslmode=disable"
-
-	if runtime.GOOS == "linux" {
-		cmdString = "user=ctdownloader dbname=ctdownload sslmode=disable host=/var/run/postgresql"
-	}
-
-	db, err := sql.Open("postgres", cmdString)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return db
-}
-
 func pushToFile(incoming <-chan *ct.LogEntry, wg *sync.WaitGroup, outputDirectory string) {
 	defer wg.Done()
 
