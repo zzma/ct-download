@@ -15,80 +15,17 @@
 package main
 
 import (
-	"crypto/sha256"
 	"sync"
 	"time"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/teamnsrg/zcrypto/ct"
 	"github.com/teamnsrg/zcrypto/ct/scanner"
 
 	log "github.com/sirupsen/logrus"
-
-	zsearch "github.com/censys/censys-definitions/go/censys-definitions"
 )
 
 const kMaxFailedScans = 10
 
-func extractMerkleTreeLeafFromLogEntry(entry *ct.LogEntry) (version string) {
-	version = entry.Leaf.Version.String()
-	return
-}
-
-func extractPrecertFromLogEntry(entry *ct.LogEntry) (raw []byte, chainWithoutLeaf [][]byte) {
-	raw = entry.Precert.Raw
-	if len(entry.Chain) > 0 {
-		chainWithoutLeaf = convertASNCertToByteArray(entry.Chain[1:])
-	}
-	return
-}
-
-func extractCertificateFromLogEntry(entry *ct.LogEntry) (raw []byte, chainWithoutLeaf [][]byte) {
-	raw = entry.X509Cert.Raw
-	chainWithoutLeaf = convertASNCertToByteArray(entry.Chain)
-	return
-}
-
-func buildExternalCertificatesFromBytes(raw []byte, chainWithoutLeaf [][]byte, entry *ct.LogEntry, server string) (out []*zsearch.ExternalCertificate) {
-	serverNumber, ok := zsearch.CTServer_value[server]
-	if !ok {
-		log.Fatalf("unknown ct server name: %s", server)
-	}
-	serverValue := zsearch.CTServer(serverNumber)
-	index := entry.Index
-	timestamp := entry.Leaf.TimestampedEntry.Timestamp
-
-	// Deal with the leaf (raw) first.
-	var parentFingerprint []byte
-	if len(chainWithoutLeaf) > 0 {
-		sum := sha256.Sum256(chainWithoutLeaf[0])
-		parentFingerprint = sum[:]
-	}
-	out = append(out, MakeExternalCertificateCT(raw, serverValue, index, timestamp, parentFingerprint, chainWithoutLeaf))
-
-	// Also do every certificate in the chain
-	for i, c := range chainWithoutLeaf {
-		var parentFingerprint []byte
-		chain := chainWithoutLeaf[i+1:]
-		if len(chain) > 0 {
-			sum := sha256.Sum256(chain[0])
-			parentFingerprint = sum[:]
-		}
-		out = append(out, MakeExternalCertificateCTChain(c, serverValue, index, timestamp, parentFingerprint, chain))
-	}
-	return
-}
-
-func sendExternalCertificateThroughChannel(externalCertificate *zsearch.ExternalCertificate, out chan<- []byte) {
-	if externalCertificate == nil {
-		log.Fatal("received nil ExternalCertificate record")
-	}
-	externalCertificateBytes, err := proto.Marshal(externalCertificate)
-	if err != nil {
-		log.Fatalf("could not marshal ExternalCertificate protobuf: %s", err)
-	}
-	out <- externalCertificateBytes
-}
 func bindFoundBothCertToChannel(out chan *ct.LogEntry) func(*ct.LogEntry, string) {
 	return func(entry *ct.LogEntry, server string) {
 		out <- entry
