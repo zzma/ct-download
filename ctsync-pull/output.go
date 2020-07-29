@@ -114,13 +114,13 @@ func (c *logEntryWriter) insertAndWriteRecords(startIdx, endIdx int) {
 		if endIdx - startIdx == 1 {
 			return
 		}
-
-		log.Info(err)
-		log.Infof("DB error, splitting insert from %d to %d in half", startIdx, endIdx)
-		//TODO: check specific unique idx violation error
-		splitIdx := startIdx + ((endIdx - startIdx) / 2)
-		c.insertAndWriteRecords(startIdx, splitIdx)
-		c.insertAndWriteRecords(splitIdx, endIdx)
+		if !strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+			log.Error(err)
+		} else {
+			splitIdx := startIdx + ((endIdx - startIdx) / 2)
+			c.insertAndWriteRecords(startIdx, splitIdx)
+			c.insertAndWriteRecords(splitIdx, endIdx)
+		}
 	} else {
 		//Successfully inserted records, write to disk
 		c.WriteRecords(startIdx, endIdx)
