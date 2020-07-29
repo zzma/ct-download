@@ -1,1 +1,1 @@
-curl -s https://www.gstatic.com/ct/log_list/v2/log_list.json | jq '.operators[].logs[]| "{\"name\":\"\(.description)\",\"url\":\"https://\(.url)\",\"batch_size\":10000}"' | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | sed "s/'//g" | sed 's,\\,,g' | sed 's/^"//g' | sed 's/"$//g'
+curl -s https://www.gstatic.com/ct/log_list/v2/log_list.json | jq '.operators[].logs[]| "{\"name\":\"\(.description)\",\"url\":\"\(.url)\",\"batch_size\":10000}"' | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | sed "s/'//g" | sed 's,\\,,g' | sed 's/^"//g' | sed 's/"$//g'

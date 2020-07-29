@@ -83,7 +83,7 @@ func setRLimitAtLeast(limit uint64) {
 
 	rLimit.Cur = limit
 	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
-		log.Fatal("unable to set rlimit to %d", limit)
+		log.Fatalf("unable to set rlimit to %d", limit)
 	}
 }
 

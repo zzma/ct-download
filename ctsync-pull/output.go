@@ -156,7 +156,7 @@ func (c *logEntryWriter) WriteRecords(startIdx, endIdx int) {
 		if !ok {
 			filename := hashPrefix + ".csv"
 			filepath := filepath.Join(c.outputDir, filename)
-			outFile, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE, 0644)
+			outFile, err := os.OpenFile(filepath, os.O_APPEND|os.O_WRONLY, 0644)
 			if err != nil {
 				log.Errorf("unable to open file: %s", filepath)
 				log.Fatal(err)
