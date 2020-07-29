@@ -57,6 +57,8 @@ type logEntryWriter struct {
 const DB_INSERT_THRESHOLD = 100
 
 func (c *logEntryWriter) Open() {
+	c.ctRecords = make([]*ct.LogEntry, 0)
+
 	cmdString := "user=ctdownloader dbname=ctdownload sslmode=disable"
 
 	if runtime.GOOS == "linux" {
@@ -109,16 +111,20 @@ func (c *logEntryWriter) insertAndWriteRecords(startIdx, endIdx int) {
 	}
 
 	if err := c.insertRecords(startIdx, endIdx); err != nil {
+		if endIdx - startIdx == 1 {
+			return
+		}
+
 		log.Info(err)
 		log.Infof("DB error, splitting insert from %d to %d in half", startIdx, endIdx)
 		//TODO: check specific unique idx violation error
-		splitIdx := (endIdx - startIdx) / 2
+		splitIdx := startIdx + ((endIdx - startIdx) / 2)
 		c.insertAndWriteRecords(startIdx, splitIdx)
 		c.insertAndWriteRecords(splitIdx, endIdx)
+	} else {
+		//Successfully inserted records, write to disk
+		c.WriteRecords(startIdx, endIdx)
 	}
-
-	//Successfully inserted records, write to disk
-	c.WriteRecords(startIdx, endIdx)
 }
 
 func (c *logEntryWriter) WriteRecords(startIdx, endIdx int) {
@@ -156,7 +162,7 @@ func (c *logEntryWriter) WriteRecords(startIdx, endIdx int) {
 		if !ok {
 			filename := hashPrefix + ".csv"
 			filepath := filepath.Join(c.outputDir, filename)
-			outFile, err := os.OpenFile(filepath, os.O_APPEND|os.O_WRONLY, 0644)
+			outFile, err := os.OpenFile(filepath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				log.Errorf("unable to open file: %s", filepath)
 				log.Fatal(err)
@@ -182,6 +188,7 @@ func (c *logEntryWriter) WriteEntry(entry *ct.LogEntry) {
 	if len(c.ctRecords) == DB_INSERT_THRESHOLD {
 		// insert records
 		c.insertAndWriteAllRecords()
+		c.ctRecords = make([]*ct.LogEntry, 0)
 	}
 }
 
