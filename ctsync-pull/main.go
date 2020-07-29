@@ -158,7 +158,7 @@ func main() {
 		os.MkdirAll(dir, os.ModePerm)
 	}
 
-	//setRLimitAtLeast(100000)
+	setRLimitAtLeast(100000)
 	go pushToFile(outputChannel, &pushWg, dir)
 
 	// Start goroutine that writes indicies to SQLite
