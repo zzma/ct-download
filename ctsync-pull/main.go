@@ -16,6 +16,7 @@ package main
 
 import (
 	"flag"
+	"github.com/pkg/profile"
 	"github.com/teamnsrg/zcrypto/ct"
 	"os"
 	"os/signal"
@@ -115,7 +116,19 @@ func main() {
 	numFetch := flag.Int("fetchers", 19, "Number of workers assigned to fetch certificates from each server")
 	numMatch := flag.Int("matchers", 2, "Number of workers assigned to parse certs from each server")
 	outputDirectory := flag.String("output-dir", "deduped-certs", "Output directory to store certificates")
+
+	var memProfile, cpuProfile bool
+	flag.BoolVar(&memProfile, "mem-profile", false, "run memory profiling")
+	flag.BoolVar(&cpuProfile, "cpu-profile", false, "run cpu profiling")
+
 	flag.Parse()
+
+	if cpuProfile {
+		defer profile.Start(profile.CPUProfile, profile.ProfilePath(".")).Stop()
+	}
+	if memProfile {
+		defer profile.Start(profile.MemProfile, profile.ProfilePath("."), profile.NoShutdownHook).Stop()
+	}
 
 	log.SetLevel(log.InfoLevel)
 	runtime.GOMAXPROCS(*numProcs)
