@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/hex"
 	"fmt"
 	"github.com/lib/pq"
 	log "github.com/sirupsen/logrus"
@@ -15,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 type csvFileWriter struct {
@@ -25,6 +27,23 @@ type csvFileWriter struct {
 type certHashes struct {
 	SHA256           string
 	TBS_NO_CT_SHA256 string
+}
+
+func selectBuilder(values []string) string {
+	var str strings.Builder
+	str.WriteString("SELECT sha256 FROM downloaded_certs WHERE sha256 IN (")
+
+	for idx, sha256 := range values {
+		str.WriteString("'\\x")
+		str.WriteString(sha256)
+		if idx == len(values)-1 {
+			str.WriteString("')")
+		} else {
+			str.WriteString("',")
+		}
+	}
+
+	return str.String()
 }
 
 func insertBuilder(values []*certHashes) string {
@@ -49,15 +68,20 @@ func insertBuilder(values []*certHashes) string {
 
 type logEntryWriter struct {
 	ctRecords []*ct.LogEntry
+	seenInBatch map[string]struct{}
 	db        *sql.DB
 	writers   map[string]*csvFileWriter
 	outputDir string
+	lastWriteTime time.Time
 }
 
-const DB_INSERT_THRESHOLD = 100
+const DB_INSERT_THRESHOLD = 1000
+const WRITER_TIMER_TIME = 10 * time.Second
 
 func (c *logEntryWriter) Open() {
 	c.ctRecords = make([]*ct.LogEntry, 0)
+	c.seenInBatch = make(map[string]struct{})
+	c.lastWriteTime = time.Now()
 
 	cmdString := "user=ctdownloader dbname=ctdownload sslmode=disable"
 
@@ -74,6 +98,8 @@ func (c *logEntryWriter) Open() {
 }
 
 func (c *logEntryWriter) Close() {
+	c.insertAndWriteRecords()
+
 	for _, writer := range c.writers {
 		writer.csvWriter.Flush()
 		writer.osFile.Close()
@@ -81,10 +107,11 @@ func (c *logEntryWriter) Close() {
 	c.db.Close()
 }
 
-func (c *logEntryWriter) insertRecords(startIdx, endIdx int) error {
-	values := make([]*certHashes, endIdx-startIdx)
-	for i := startIdx; i < endIdx; i++ {
-		entry := c.ctRecords[i]
+func (c *logEntryWriter) insertRecords(indexes []int) error {
+	values := make([]*certHashes, len(indexes))
+
+	for i, idx := range indexes {
+		entry := c.ctRecords[idx]
 		var sha256, tbsNoCTSHA256 string
 		if entry.Leaf.TimestampedEntry.EntryType == ct.X509LogEntryType {
 			sha256 = entry.X509Cert.FingerprintSHA256.Hex()
@@ -94,7 +121,7 @@ func (c *logEntryWriter) insertRecords(startIdx, endIdx int) error {
 			tbsNoCTSHA256 = entry.Precert.TBSCertificate.FingerprintNoCT.Hex()
 		}
 
-		values[i-startIdx] = &certHashes{SHA256: sha256, TBS_NO_CT_SHA256: tbsNoCTSHA256}
+		values[i] = &certHashes{SHA256: sha256, TBS_NO_CT_SHA256: tbsNoCTSHA256}
 	}
 
 	_, e := c.db.Exec(insertBuilder(values))
@@ -105,30 +132,9 @@ func (c *logEntryWriter) insertRecords(startIdx, endIdx int) error {
 	return nil
 }
 
-func (c *logEntryWriter) insertAndWriteRecords(startIdx, endIdx int) {
-	if startIdx >= endIdx {
-		return
-	}
-
-	if err := c.insertRecords(startIdx, endIdx); err != nil {
-		if endIdx - startIdx == 1 {
-			return
-		}
-		if !strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
-			log.Error(err)
-		} else {
-			splitIdx := startIdx + ((endIdx - startIdx) / 2)
-			c.insertAndWriteRecords(startIdx, splitIdx)
-			c.insertAndWriteRecords(splitIdx, endIdx)
-		}
-	} else {
-		//Successfully inserted records, write to disk
-		c.WriteRecords(startIdx, endIdx)
-	}
-}
-
-func (c *logEntryWriter) WriteRecords(startIdx, endIdx int) {
-	for _, entry := range c.ctRecords[startIdx:endIdx] {
+func (c *logEntryWriter) writeRecords(indexes []int) {
+	for _, idx := range indexes {
+		entry := c.ctRecords[idx]
 		chainBytes := make([]byte, 0)
 		chainB64 := make([]string, len(entry.Chain))
 		for i, c := range entry.Chain {
@@ -175,8 +181,49 @@ func (c *logEntryWriter) WriteRecords(startIdx, endIdx int) {
 	}
 }
 
-func (c *logEntryWriter) insertAndWriteAllRecords() {
-	c.insertAndWriteRecords(0, len(c.ctRecords))
+func (c *logEntryWriter) insertAndWriteRecords() {
+	// Check which records exist
+	values := make([]string, len(c.ctRecords))
+	for idx, ctRecord := range c.ctRecords {
+		entry := ctRecord
+		if entry.Leaf.TimestampedEntry.EntryType == ct.X509LogEntryType {
+			values[idx] = entry.X509Cert.FingerprintSHA256.Hex()
+		} else if entry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType {
+			values[idx] = entry.Precert.TBSCertificate.FingerprintSHA256.Hex()
+		}
+	}
+
+	rows, e := c.db.Query(selectBuilder(values))
+	defer rows.Close()
+	if err, hasErr := e.(*pq.Error); hasErr {
+		log.Error(err)
+	}
+
+	included := make(map[string]struct{})
+	for rows.Next() {
+		bytes := make([]byte, 32)
+		err := rows.Scan(&bytes)
+		if err != nil {
+			log.Fatal(err)
+		}
+		sha256 := hex.EncodeToString(bytes)
+		included[sha256] = struct{}{}
+	}
+
+	not_included := make([]int, 0)
+	for idx, sha256 := range values {
+		if _, ok := included[sha256]; !ok {
+			not_included = append(not_included, idx)
+		}
+	}
+
+	// Insert and write the ones that aren't
+	if err := c.insertRecords(not_included); err != nil {
+		log.Error(err)
+		log.Info(not_included)
+	}
+
+	c.writeRecords(not_included)
 }
 
 func (c *logEntryWriter) WriteEntry(entry *ct.LogEntry) {
@@ -184,11 +231,26 @@ func (c *logEntryWriter) WriteEntry(entry *ct.LogEntry) {
 		log.Fatal("Must open logEntryWriter (logEntryWriter.Open()) before adding records")
 	}
 
+	var sha256 string
+
+	if entry.Leaf.TimestampedEntry.EntryType == ct.X509LogEntryType {
+		sha256 = entry.X509Cert.FingerprintSHA256.Hex()
+	} else if entry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType {
+		sha256 = entry.Precert.TBSCertificate.FingerprintSHA256.Hex()
+	}
+
+	if _, seenAlready := c.seenInBatch[sha256]; seenAlready {
+		return
+	}
+
+	c.seenInBatch[sha256] = struct{}{}
 	c.ctRecords = append(c.ctRecords, entry)
-	if len(c.ctRecords) == DB_INSERT_THRESHOLD {
+	if len(c.ctRecords) == DB_INSERT_THRESHOLD || time.Now().After(c.lastWriteTime.Add(WRITER_TIMER_TIME)) {
 		// insert records
-		c.insertAndWriteAllRecords()
+		c.insertAndWriteRecords()
 		c.ctRecords = make([]*ct.LogEntry, 0)
+		c.lastWriteTime = time.Now()
+		c.seenInBatch = make(map[string]struct{})
 	}
 }
 
