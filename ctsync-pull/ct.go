@@ -72,6 +72,7 @@ func pullFromCT(l CTLogInfo, externalCertificateOut chan *ct.LogEntry, updater c
 			Quiet:         true,
 			Name:          l.Name,
 			MaximumIndex:  maxIndex,
+			ErrorTimeout: 30 * time.Second,
 		}
 		s := scanner.NewScanner(logConnection.logClient, scanOpts, logger)
 		foundCert := bindFoundBothCertToChannel(externalCertificateOut)
