@@ -182,6 +182,9 @@ func (c *logEntryWriter) writeRecords(indexes []int) {
 }
 
 func (c *logEntryWriter) insertAndWriteRecords() {
+	if len(c.ctRecords) == 0 {
+		return
+	}
 	// Check which records exist
 	values := make([]string, len(c.ctRecords))
 	for idx, ctRecord := range c.ctRecords {
@@ -215,6 +218,10 @@ func (c *logEntryWriter) insertAndWriteRecords() {
 		if _, ok := included[sha256]; !ok {
 			not_included = append(not_included, idx)
 		}
+	}
+
+	if len(not_included) == 0 {
+		return
 	}
 
 	// Insert and write the ones that aren't
