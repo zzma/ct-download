@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,11 +68,11 @@ func insertBuilder(values []*certHashes) string {
 }
 
 type logEntryWriter struct {
-	ctRecords []*ct.LogEntry
-	seenInBatch map[string]struct{}
-	db        *sql.DB
-	writers   map[string]*csvFileWriter
-	outputDir string
+	ctRecords     []*ct.LogEntry
+	seenInBatch   map[string]struct{}
+	db            *sql.DB
+	yearWriters   map[string]map[string]*csvFileWriter
+	outputDir     string
 	lastWriteTime time.Time
 }
 
@@ -94,15 +95,17 @@ func (c *logEntryWriter) Open() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	c.writers = make(map[string]*csvFileWriter)
+	c.yearWriters = make(map[string]map[string]*csvFileWriter)
 }
 
 func (c *logEntryWriter) Close() {
 	c.insertAndWriteRecords()
 
-	for _, writer := range c.writers {
-		writer.csvWriter.Flush()
-		writer.osFile.Close()
+	for _, yearWriter := range c.yearWriters {
+		for _, writer := range yearWriter {
+			writer.csvWriter.Flush()
+			writer.osFile.Close()
+		}
 	}
 	c.db.Close()
 }
@@ -144,13 +147,15 @@ func (c *logEntryWriter) writeRecords(indexes []int) {
 		}
 
 		chainHash := fmt.Sprintf("%x", sha256.Sum256(chainBytes))
-		var leafB64, leafHash, leafTBSnoCTfingerprint string
+		var leafB64, leafHash, leafTBSnoCTfingerprint, validFromYear string
 		if entry.Leaf.TimestampedEntry.EntryType == ct.X509LogEntryType {
 			leafB64 = base64.StdEncoding.EncodeToString(entry.X509Cert.Raw)
+			validFromYear = strconv.Itoa(entry.X509Cert.NotBefore.Year())
 			leafHash = entry.X509Cert.FingerprintSHA256.Hex()
 			leafTBSnoCTfingerprint = entry.X509Cert.FingerprintNoCT.Hex()
 		} else if entry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType {
 			leafB64 = base64.StdEncoding.EncodeToString(entry.Precert.Raw)
+			validFromYear = strconv.Itoa(entry.Precert.TBSCertificate.NotBefore.Year())
 			hash := sha256.Sum256(entry.Precert.Raw)
 			leafHash = hex.EncodeToString(hash[:])
 			leafTBSnoCTfingerprint = entry.Precert.TBSCertificate.FingerprintNoCT.Hex()
@@ -166,20 +171,26 @@ func (c *logEntryWriter) writeRecords(indexes []int) {
 		}
 
 		hashPrefix := leafHash[0:3]
-		_, ok := c.writers[hashPrefix]
+		_, ok := c.yearWriters[validFromYear]
+		if !ok {
+			c.yearWriters[validFromYear] = make(map[string] *csvFileWriter)
+			os.Mkdir(filepath.Join(c.outputDir,validFromYear), 0755)
+		}
+
+		_, ok = c.yearWriters[validFromYear][hashPrefix]
 		if !ok {
 			filename := hashPrefix + ".csv"
-			filepath := filepath.Join(c.outputDir, filename)
+			filepath := filepath.Join(c.outputDir,validFromYear, filename)
 			outFile, err := os.OpenFile(filepath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				log.Errorf("unable to open file: %s", filepath)
 				log.Fatal(err)
 			}
 			csvFW := csvFileWriter{csvWriter: csv.NewWriter(outFile), osFile: outFile}
-			c.writers[hashPrefix] = &csvFW
+			c.yearWriters[validFromYear][hashPrefix] = &csvFW
 		}
 
-		c.writers[hashPrefix].csvWriter.Write(row)
+		c.yearWriters[validFromYear][hashPrefix].csvWriter.Write(row)
 	}
 }
 
