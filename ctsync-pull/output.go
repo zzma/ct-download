@@ -112,16 +112,17 @@ func (c *logEntryWriter) insertRecords(indexes []int) error {
 
 	for i, idx := range indexes {
 		entry := c.ctRecords[idx]
-		var sha256, tbsNoCTSHA256 string
+		var sha256Fingerprint, tbsNoCTSHA256 string
 		if entry.Leaf.TimestampedEntry.EntryType == ct.X509LogEntryType {
-			sha256 = entry.X509Cert.FingerprintSHA256.Hex()
+			sha256Fingerprint = entry.X509Cert.FingerprintSHA256.Hex()
 			tbsNoCTSHA256 = entry.X509Cert.FingerprintNoCT.Hex()
 		} else if entry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType {
-			sha256 = entry.Precert.TBSCertificate.FingerprintSHA256.Hex()
+			hash := sha256.Sum256(entry.Precert.Raw)
+			sha256Fingerprint = hex.EncodeToString(hash[:])
 			tbsNoCTSHA256 = entry.Precert.TBSCertificate.FingerprintNoCT.Hex()
 		}
 
-		values[i] = &certHashes{SHA256: sha256, TBS_NO_CT_SHA256: tbsNoCTSHA256}
+		values[i] = &certHashes{SHA256: sha256Fingerprint, TBS_NO_CT_SHA256: tbsNoCTSHA256}
 	}
 
 	_, e := c.db.Exec(insertBuilder(values))
@@ -150,7 +151,8 @@ func (c *logEntryWriter) writeRecords(indexes []int) {
 			leafTBSnoCTfingerprint = entry.X509Cert.FingerprintNoCT.Hex()
 		} else if entry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType {
 			leafB64 = base64.StdEncoding.EncodeToString(entry.Precert.Raw)
-			leafHash = entry.Precert.TBSCertificate.FingerprintSHA256.Hex()
+			hash := sha256.Sum256(entry.Precert.Raw)
+			leafHash = hex.EncodeToString(hash[:])
 			leafTBSnoCTfingerprint = entry.Precert.TBSCertificate.FingerprintNoCT.Hex()
 		}
 
@@ -192,7 +194,8 @@ func (c *logEntryWriter) insertAndWriteRecords() {
 		if entry.Leaf.TimestampedEntry.EntryType == ct.X509LogEntryType {
 			values[idx] = entry.X509Cert.FingerprintSHA256.Hex()
 		} else if entry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType {
-			values[idx] = entry.Precert.TBSCertificate.FingerprintSHA256.Hex()
+			hash := sha256.Sum256(entry.Precert.Raw)
+			values[idx] = hex.EncodeToString(hash[:])
 		}
 	}
 
