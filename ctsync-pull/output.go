@@ -147,15 +147,16 @@ func (c *logEntryWriter) writeRecords(indexes []int) {
 		}
 
 		chainHash := fmt.Sprintf("%x", sha256.Sum256(chainBytes))
-		var leafB64, leafHash, leafTBSnoCTfingerprint, validFromYear string
+		var leafB64, leafHash, leafTBSnoCTfingerprint, ctLoggedYear string
+		ctTimestamp := time.Unix(int64(entry.Leaf.TimestampedEntry.Timestamp / 1000), 0)
+		ctLoggedYear = strconv.Itoa(ctTimestamp.Year())
+
 		if entry.Leaf.TimestampedEntry.EntryType == ct.X509LogEntryType {
 			leafB64 = base64.StdEncoding.EncodeToString(entry.X509Cert.Raw)
-			validFromYear = strconv.Itoa(entry.X509Cert.NotBefore.Year())
 			leafHash = entry.X509Cert.FingerprintSHA256.Hex()
 			leafTBSnoCTfingerprint = entry.X509Cert.FingerprintNoCT.Hex()
 		} else if entry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType {
 			leafB64 = base64.StdEncoding.EncodeToString(entry.Precert.Raw)
-			validFromYear = strconv.Itoa(entry.Precert.TBSCertificate.NotBefore.Year())
 			hash := sha256.Sum256(entry.Precert.Raw)
 			leafHash = hex.EncodeToString(hash[:])
 			leafTBSnoCTfingerprint = entry.Precert.TBSCertificate.FingerprintNoCT.Hex()
@@ -171,26 +172,26 @@ func (c *logEntryWriter) writeRecords(indexes []int) {
 		}
 
 		hashPrefix := leafHash[0:3]
-		_, ok := c.yearWriters[validFromYear]
+		_, ok := c.yearWriters[ctLoggedYear]
 		if !ok {
-			c.yearWriters[validFromYear] = make(map[string] *csvFileWriter)
-			os.Mkdir(filepath.Join(c.outputDir,validFromYear), 0755)
+			c.yearWriters[ctLoggedYear] = make(map[string] *csvFileWriter)
+			os.Mkdir(filepath.Join(c.outputDir, ctLoggedYear), 0755)
 		}
 
-		_, ok = c.yearWriters[validFromYear][hashPrefix]
+		_, ok = c.yearWriters[ctLoggedYear][hashPrefix]
 		if !ok {
 			filename := hashPrefix + ".csv"
-			filepath := filepath.Join(c.outputDir,validFromYear, filename)
+			filepath := filepath.Join(c.outputDir, ctLoggedYear, filename)
 			outFile, err := os.OpenFile(filepath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				log.Errorf("unable to open file: %s", filepath)
 				log.Fatal(err)
 			}
 			csvFW := csvFileWriter{csvWriter: csv.NewWriter(outFile), osFile: outFile}
-			c.yearWriters[validFromYear][hashPrefix] = &csvFW
+			c.yearWriters[ctLoggedYear][hashPrefix] = &csvFW
 		}
 
-		c.yearWriters[validFromYear][hashPrefix].csvWriter.Write(row)
+		c.yearWriters[ctLoggedYear][hashPrefix].csvWriter.Write(row)
 	}
 }
 
