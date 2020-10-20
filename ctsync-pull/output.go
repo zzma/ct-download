@@ -238,19 +238,20 @@ func (c *logEntryWriter) WriteEntry(entry *ct.LogEntry) {
 		log.Fatal("Must open logEntryWriter (logEntryWriter.Open()) before adding records")
 	}
 
-	var sha256 string
+	var sha256Fingerprint string
 
 	if entry.Leaf.TimestampedEntry.EntryType == ct.X509LogEntryType {
-		sha256 = entry.X509Cert.FingerprintSHA256.Hex()
+		sha256Fingerprint = entry.X509Cert.FingerprintSHA256.Hex()
 	} else if entry.Leaf.TimestampedEntry.EntryType == ct.PrecertLogEntryType {
-		sha256 = entry.Precert.TBSCertificate.FingerprintSHA256.Hex()
+		hash := sha256.Sum256(entry.Precert.Raw)
+		sha256Fingerprint = hex.EncodeToString(hash[:])
 	}
 
-	if _, seenAlready := c.seenInBatch[sha256]; seenAlready {
+	if _, seenAlready := c.seenInBatch[sha256Fingerprint]; seenAlready {
 		return
 	}
 
-	c.seenInBatch[sha256] = struct{}{}
+	c.seenInBatch[sha256Fingerprint] = struct{}{}
 	c.ctRecords = append(c.ctRecords, entry)
 	if len(c.ctRecords) == DB_INSERT_THRESHOLD || time.Now().After(c.lastWriteTime.Add(WRITER_TIMER_TIME)) {
 		// insert records
