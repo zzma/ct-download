@@ -53,14 +53,14 @@ func insertBuilder(values []*certHashes) string {
 
 	for idx, hashes := range values {
 
-		str.WriteString(" (decode('")
+		str.WriteString(" ('\\x")
 		str.WriteString(hashes.SHA256)
-		str.WriteString("','hex'),decode('")
+		str.WriteString("','\\x")
 		str.WriteString(hashes.TBS_NO_CT_SHA256)
 		if idx == len(values)-1 {
-			str.WriteString("','hex'))")
+			str.WriteString("')")
 		} else {
-			str.WriteString("','hex')),")
+			str.WriteString("'),")
 		}
 	}
 
@@ -77,7 +77,7 @@ type logEntryWriter struct {
 }
 
 const DB_INSERT_THRESHOLD = 1000
-const WRITER_TIMER_TIME = 10 * time.Second
+const WRITER_TIMER_TIME = 30 * time.Second
 
 func (c *logEntryWriter) Open() {
 	c.ctRecords = make([]*ct.LogEntry, 0)
@@ -128,9 +128,11 @@ func (c *logEntryWriter) insertRecords(indexes []int) error {
 		values[i] = &certHashes{SHA256: sha256Fingerprint, TBS_NO_CT_SHA256: tbsNoCTSHA256}
 	}
 
-	_, e := c.db.Exec(insertBuilder(values))
-	if err, hasErr := e.(*pq.Error); hasErr {
-		return err
+	if len(values) > 0 {
+		_, e := c.db.Exec(insertBuilder(values))
+		if err, hasErr := e.(*pq.Error); hasErr {
+			return err
+		}
 	}
 
 	return nil
