@@ -108,13 +108,11 @@ func (r *runState) checkRunning() bool {
 
 
 func main() {
-	configFile := flag.String("config", "fullConfig.json", "The configuration file for log servers")
-	//brokerString := flag.String("brokers", "localhost:9092", "A comma separated list of the kafka broker locations")
-	//outTopic := flag.String("out-topic", "ct_to_zdb", "Kafka topic to place certificates in")
+	configFile := flag.String("config", "config.json", "The configuration file for log servers")
 	dbPath := flag.String("db", "ctsync-pull.db", "Path to the SQLite file that stores log sync progress")
-	numProcs := flag.Int("gomaxprocs", 0, "Number of processes to use")
-	numFetch := flag.Int("fetchers", 19, "Number of workers assigned to fetch certificates from each server")
-	numMatch := flag.Int("matchers", 2, "Number of workers assigned to parse certs from each server")
+	numProcs := flag.Int("gomaxprocs", 1, "Number of processes to use")
+	numFetch := flag.Int("fetchers", 1, "Number of workers assigned to fetch certificates from each server")
+	numMatch := flag.Int("matchers", 1, "Number of workers assigned to parse certs from each server")
 	outputDirectory := flag.String("output-dir", "deduped-certs", "Output directory to store certificates")
 
 	var memProfile, cpuProfile bool
